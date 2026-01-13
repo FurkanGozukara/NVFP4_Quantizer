@@ -4,7 +4,9 @@ For FLUX, SD3, SDXL models
 """
 
 import os
+import re
 import subprocess
+import sys
 import traceback
 from pathlib import Path
 import gradio as gr
@@ -226,39 +228,66 @@ def run_diffusion_quantization(
         progress(0.3, desc="⚡ Quantizing model (this will take a while)...")
 
         # Execute quantization
+        env = os.environ.copy()
+        env["PYTHONUNBUFFERED"] = "1"
+
         process = subprocess.Popen(
             cmd,
             stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT,
-            text=True,
-            bufsize=1,
-            universal_newlines=True,
-            cwd=str(DIFFUSION_SCRIPT.parent)
+            bufsize=0,
+            cwd=str(DIFFUSION_SCRIPT.parent),
+            env=env,
         )
 
         # Stream output with progress tracking
         output_lines = []
         progress_value = 0.3
+        buffer = ""
 
-        for line in process.stdout:
-            output_lines.append(line)
+        while True:
+            chunk = process.stdout.read(64)
+            if not chunk:
+                break
 
-            # Update progress based on keywords
-            if "Loading" in line or "load" in line.lower():
-                progress_value = max(progress_value, 0.4)
-                progress(progress_value, desc="📥 Loading model...")
-            elif "Quantizing" in line or "quantize" in line.lower():
-                progress_value = max(progress_value, 0.55)
-                progress(progress_value, desc="🔢 Quantizing layers...")
-            elif "Calibrating" in line or "calibration" in line.lower():
-                progress_value = max(progress_value, 0.7)
-                progress(progress_value, desc="📊 Calibrating...")
-            elif "step" in line.lower():
-                progress_value = min(progress_value + 0.001, 0.85)
-                progress(progress_value, desc="🔄 Processing calibration...")
-            elif "Saving" in line or "save" in line.lower():
-                progress_value = 0.92
-                progress(progress_value, desc="💾 Saving quantized model...")
+            try:
+                sys.stdout.buffer.write(chunk)
+                sys.stdout.buffer.flush()
+            except Exception:
+                sys.stdout.write(chunk.decode(errors="replace"))
+                sys.stdout.flush()
+
+            text_chunk = chunk.decode(errors="replace")
+            buffer += text_chunk
+
+            if "\n" in buffer or "\r" in buffer:
+                parts = re.split(r"[\r\n]", buffer)
+                buffer = parts.pop()
+                for line in parts:
+                    if not line:
+                        continue
+                    output_lines.append(line + "\n")
+
+                    # Update progress based on keywords
+                    line_lower = line.lower()
+                    if "loading" in line or "load" in line_lower:
+                        progress_value = max(progress_value, 0.4)
+                        progress(progress_value, desc="Loading model...")
+                    elif "quantizing" in line or "quantize" in line_lower:
+                        progress_value = max(progress_value, 0.55)
+                        progress(progress_value, desc="Quantizing layers...")
+                    elif "calibrating" in line or "calibration" in line_lower:
+                        progress_value = max(progress_value, 0.7)
+                        progress(progress_value, desc="Calibrating...")
+                    elif "step" in line_lower:
+                        progress_value = min(progress_value + 0.001, 0.85)
+                        progress(progress_value, desc="Processing calibration...")
+                    elif "saving" in line or "save" in line_lower:
+                        progress_value = 0.92
+                        progress(progress_value, desc="Saving quantized model...")
+
+        if buffer.strip():
+            output_lines.append(buffer + "\n")
 
         process.wait()
 

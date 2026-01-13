@@ -336,6 +336,7 @@ def diffusion_quantization_tab(headless: bool = False):
             with gr.Row():
                 model_path = gr.Textbox(
                     label="Model File",
+                    value="/workspace/FLUX-SRPO-bf16.safetensors",
                     placeholder="Click 📂 to browse for your .safetensors file",
                     scale=5,
                     info="Select FLUX, SD3, or SDXL model file"
@@ -354,7 +355,7 @@ def diffusion_quantization_tab(headless: bool = False):
             model_type = gr.Dropdown(
                 label="Model Type",
                 choices=list(DIFFUSION_MODELS.keys()),
-                value="Auto Detect",
+                value="FLUX Dev",
                 info="Auto-detect from filename or select manually"
             )
 
@@ -365,6 +366,7 @@ def diffusion_quantization_tab(headless: bool = False):
             with gr.Row():
                 vae_path = gr.Textbox(
                     label="VAE Model (Optional)",
+                    value="/workspace/ae.safetensors",
                     placeholder="e.g., ae.safetensors",
                     scale=5,
                     info="Local VAE model path. Leave empty to download from HuggingFace."
@@ -374,6 +376,7 @@ def diffusion_quantization_tab(headless: bool = False):
             with gr.Row():
                 text_encoder_path = gr.Textbox(
                     label="CLIP Text Encoder (Optional)",
+                    value="/workspace/clip_l.safetensors",
                     placeholder="e.g., clip_l.safetensors",
                     scale=5,
                     info="Local CLIP text encoder path. Leave empty to download from HuggingFace."
@@ -383,6 +386,7 @@ def diffusion_quantization_tab(headless: bool = False):
             with gr.Row():
                 text_encoder_2_path = gr.Textbox(
                     label="T5 Text Encoder (Optional)",
+                    value="/workspace/t5xxl_fp16.safetensors",
                     placeholder="e.g., t5xxl_fp16.safetensors",
                     scale=5,
                     info="Local T5 text encoder for FLUX/SD3. Leave empty to download from HuggingFace."

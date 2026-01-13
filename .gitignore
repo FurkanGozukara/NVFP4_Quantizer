@@ -1,0 +1,11 @@
+diffusers
+nul
+.claude
+__pycache__
+gradio
+Model-Optimizer
+SECourses_Musubi_Trainer
+*.safetensors
+*.bat
+requirements_optimizer.txt
+*__pycache__*

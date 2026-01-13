@@ -155,7 +155,7 @@ def create_ui(headless: bool = False):
                     ## Troubleshooting
 
                     ### "Virtual environment not found"
-                    - Ensure Model-Optimizer/venv exists
+                    - Ensure venv exists in the project root directory
                     - Run the Model-Optimizer installation script first
 
                     ### "CUDA out of memory"

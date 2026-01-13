@@ -14,9 +14,17 @@ except ImportError:
     Tk = None
 
 # Path constants
-MODEL_OPTIMIZER_DIR = Path(__file__).parent.parent / "Model-Optimizer"
-VENV_DIR = MODEL_OPTIMIZER_DIR / "venv"
-VENV_PYTHON = VENV_DIR / "Scripts" / "python.exe" if sys.platform == "win32" else VENV_DIR / "bin" / "python"
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+MODEL_OPTIMIZER_DIR = PROJECT_ROOT / "Model-Optimizer"
+VENV_DIR = PROJECT_ROOT / "venv"
+
+if sys.platform == "win32":
+    VENV_PYTHON = VENV_DIR / "Scripts" / "python.exe"
+else:
+    venv_bin = VENV_DIR / "bin"
+    VENV_PYTHON = venv_bin / "python"
+    if not VENV_PYTHON.exists():
+        VENV_PYTHON = venv_bin / "python3"
 
 # Scripts
 DIFFUSION_SCRIPT = MODEL_OPTIMIZER_DIR / "examples" / "diffusers" / "quantization" / "quantize.py"

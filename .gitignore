@@ -9,3 +9,4 @@ SECourses_Musubi_Trainer
 *.bat
 requirements_optimizer.txt
 *__pycache__*
+venv/

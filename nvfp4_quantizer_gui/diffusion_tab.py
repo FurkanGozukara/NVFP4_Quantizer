@@ -19,6 +19,7 @@ from .common_utils import (
     DIFFUSION_SCRIPT,
     VENV_PYTHON,
     get_model_size,
+    get_next_run_log_path,
 )
 
 try:
@@ -128,6 +129,7 @@ def run_diffusion_quantization(
         Tuple of (log_output, output_file_path)
     """
 
+    log_file = None
     try:
         # Validate inputs
         if not model_path or not model_path.strip():
@@ -196,6 +198,13 @@ def run_diffusion_quantization(
         if safetensors_target_path is not None:
             safetensors_target_path = Path(os.path.abspath(str(safetensors_target_path)))
 
+        log_path = get_next_run_log_path()
+        log_error = None
+        try:
+            log_file = open(log_path, "wb")
+        except Exception as e:
+            log_error = str(e)
+
         progress(0.2, desc="⚙️ Configuring parameters...")
 
         # Build command based on Model-Optimizer pipeline
@@ -257,6 +266,11 @@ def run_diffusion_quantization(
         result += f"   Output File Name: {output_path.name}\n"
         result += f"   Output Folder: {output_path.parent}\n"
         result += f"   Convert to SafeTensors: {'✅ YES' if convert_to_safetensors else '❌ NO'}\n\n"
+        if log_file is not None:
+            result += f"   Log File: {log_path}\n\n"
+        else:
+            log_status = f"Unavailable ({log_error})" if log_error else "Unavailable"
+            result += f"   Log File: {log_status}\n\n"
 
         result += f"🔢 Quantization Settings:\n"
         result += f"   Format: {quant_format.upper()}\n"
@@ -288,6 +302,9 @@ def run_diffusion_quantization(
         else:
             result += f"   {cmd_str}\n"
         result += "\n"
+        if log_file is not None:
+            log_file.write(f"Command: {cmd_str}\n\n".encode("utf-8", errors="replace"))
+            log_file.flush()
         result += f"🔍 Key Arguments Check:\n"
         if "--quantized-torch-ckpt-save-path" in cmd:
             idx = cmd.index("--quantized-torch-ckpt-save-path")
@@ -329,6 +346,9 @@ def run_diffusion_quantization(
             except Exception:
                 sys.stdout.write(chunk.decode(errors="replace"))
                 sys.stdout.flush()
+            if log_file is not None:
+                log_file.write(chunk)
+                log_file.flush()
 
             text_chunk = chunk.decode(errors="replace")
             buffer += text_chunk
@@ -518,6 +538,9 @@ def run_diffusion_quantization(
     except Exception as e:
         error_msg = f"❌ Unexpected Error:\n\n{str(e)}\n\n{traceback.format_exc()}"
         return error_msg, ""
+    finally:
+        if log_file is not None:
+            log_file.close()
 
 
 def diffusion_quantization_tab(headless: bool = False):

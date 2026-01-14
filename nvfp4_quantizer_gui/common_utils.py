@@ -3,6 +3,7 @@ Common utilities for NVFP4 Quantizer GUI
 """
 
 import os
+import re
 import sys
 from pathlib import Path
 from typing import Tuple
@@ -17,6 +18,7 @@ except ImportError:
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 MODEL_OPTIMIZER_DIR = PROJECT_ROOT / "Model-Optimizer"
 VENV_DIR = PROJECT_ROOT / "venv"
+LOGS_DIR = PROJECT_ROOT / "logs"
 
 if sys.platform == "win32":
     VENV_PYTHON = VENV_DIR / "Scripts" / "python.exe"
@@ -157,3 +159,25 @@ def get_model_size(model_path: str) -> str:
     except:
         pass
     return "Unknown"
+
+
+def get_next_run_log_path(
+    logs_dir: Path = LOGS_DIR,
+    prefix: str = "run_",
+    extension: str = ".txt",
+) -> Path:
+    """
+    Create logs directory (if needed) and return next run log path.
+
+    Files are named like run_0001.txt, run_0002.txt, etc.
+    """
+    logs_dir.mkdir(parents=True, exist_ok=True)
+    pattern = re.compile(rf"^{re.escape(prefix)}(\d+){re.escape(extension)}$")
+    max_index = 0
+    for path in logs_dir.iterdir():
+        if not path.is_file():
+            continue
+        match = pattern.match(path.name)
+        if match:
+            max_index = max(max_index, int(match.group(1)))
+    return logs_dir / f"{prefix}{max_index + 1:04d}{extension}"

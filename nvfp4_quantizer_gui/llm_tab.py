@@ -16,6 +16,7 @@ from .common_utils import (
     check_venv_exists,
     LLM_SCRIPT,
     VENV_PYTHON,
+    get_next_run_log_path,
 )
 
 # LLM Quantization formats
@@ -60,6 +61,7 @@ def run_llm_quantization(
         Tuple of (log_output, output_directory_path)
     """
 
+    log_file = None
     try:
         # Validate inputs
         if not model_path or not model_path.strip():
@@ -85,6 +87,13 @@ def run_llm_quantization(
         # Create output directory
         os.makedirs(output_dir, exist_ok=True)
 
+        log_path = get_next_run_log_path()
+        log_error = None
+        try:
+            log_file = open(log_path, "w", encoding="utf-8")
+        except Exception as e:
+            log_error = str(e)
+
         # Build command
         cmd = [
             str(VENV_PYTHON),
@@ -104,6 +113,11 @@ def run_llm_quantization(
         if kv_cache != "none":
             cmd.extend(["--kv_cache_dtype", kv_cache])
 
+        cmd_str = " ".join([f'"{arg}"' if " " in str(arg) else str(arg) for arg in cmd])
+        if log_file is not None:
+            log_file.write(f"Command: {cmd_str}\n\n")
+            log_file.flush()
+
         progress(0.2, desc="🚀 Starting LLM quantization...")
 
         # Format output header
@@ -116,6 +130,11 @@ def run_llm_quantization(
 
         result += f"💾 Output Directory:\n"
         result += f"   {output_dir}\n\n"
+        if log_file is not None:
+            result += f"   Log File: {log_path}\n\n"
+        else:
+            log_status = f"Unavailable ({log_error})" if log_error else "Unavailable"
+            result += f"   Log File: {log_status}\n\n"
 
         result += f"🔢 Quantization:\n"
         result += f"   Format: {quant_format_ui}\n"
@@ -148,6 +167,9 @@ def run_llm_quantization(
 
         for line in process.stdout:
             output_lines.append(line)
+            if log_file is not None:
+                log_file.write(line)
+                log_file.flush()
 
             # Update progress based on keywords
             if "Loading" in line or "load" in line.lower():
@@ -211,6 +233,9 @@ def run_llm_quantization(
     except Exception as e:
         error_msg = f"❌ Unexpected Error:\n\n{str(e)}\n\n{traceback.format_exc()}"
         return error_msg, ""
+    finally:
+        if log_file is not None:
+            log_file.close()
 
 
 def llm_quantization_tab(headless: bool = False):

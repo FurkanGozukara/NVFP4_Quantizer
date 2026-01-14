@@ -32,7 +32,7 @@ def create_ui(headless: bool = False):
         # Header
         gr.Markdown(
             """
-            # ⚡ NVFP4 Model Quantizer V1 : https://www.patreon.com/posts/148217625 
+            # ⚡ NVFP4 Model Quantizer V1.1 : https://www.patreon.com/posts/148217625 
             ### All-in-One Tool for Quantizing AI Models to NVFP4 Format
 
             Reduce model size by 2-4x while maintaining quality using NVIDIA ModelOpt.

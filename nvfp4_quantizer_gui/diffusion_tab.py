@@ -34,6 +34,16 @@ except ImportError:
 # BEST PRESETS FOR DIFFUSION MODELS
 # Based on NVIDIA Model-Optimizer configs
 DIFFUSION_PRESETS = {
+    "Best Quality (Mixed Dev)": {
+        "quant_format": "fp4_mixed_dev",
+        "quant_algo": "max",
+        "calib_size": 512,
+        "n_steps": 30,
+        "quantize_mha": True,
+        "svd_lowrank": 64,
+        "compress": False,
+        "description": "Flux Dev only: mixed FP4/FP8 layer map for higher quality (larger file).",
+    },
     "🚀 Best Quality": {
         "quant_format": "fp4",
         "quant_algo": "max",
@@ -183,7 +193,12 @@ def run_diffusion_quantization(
         input_path = Path(model_path).expanduser()
         if not input_path.is_absolute():
             input_path = Path(os.path.abspath(str(input_path)))
-        suffix = "_NVFP4_custom" if quant_format == "fp4" else "_FP8_custom"
+        if quant_format == "fp4_mixed_dev":
+            suffix = "_NVFP4_mixed_custom"
+        elif quant_format == "fp4":
+            suffix = "_NVFP4_custom"
+        else:
+            suffix = "_FP8_custom"
 
         # Use custom output path if provided (file or folder), otherwise save in same folder
         output_path_input = output_folder.strip() if output_folder else ""
@@ -463,7 +478,10 @@ def run_diffusion_quantization(
                         if not converter_script.exists():
                             raise FileNotFoundError(f"Converter not found: {converter_script}")
 
-                        quant_format_str = "nvfp4" if quant_format == "fp4" else "float8_e4m3fn"
+                        if quant_format in ("fp4", "fp4_mixed_dev"):
+                            quant_format_str = "nvfp4"
+                        else:
+                            quant_format_str = "float8_e4m3fn"
                         cmd_conv = [
                             str(VENV_PYTHON),
                             str(converter_script),
@@ -594,7 +612,7 @@ def diffusion_quantization_tab(headless: bool = False):
                     label="Output Path (Optional)",
                     placeholder="Leave empty to save in same folder as input model",
                     scale=5,
-                    info="Provide a folder or a filename (.pt or .safetensors). If empty, saves next to input with _NVFP4 suffix."
+                    info="Provide a folder or a filename (.pt or .safetensors). If empty, saves next to input with _NVFP4 suffix (_NVFP4_mixed for mixed dev)."
                 )
                 output_folder_btn = gr.Button("📂", scale=1, size="lg")
 
@@ -666,10 +684,10 @@ def diffusion_quantization_tab(headless: bool = False):
 
             with gr.Row():
                 quant_format = gr.Dropdown(
-                    choices=["fp4", "fp8"],
+                    choices=["fp4", "fp4_mixed_dev", "fp8"],
                     value="fp4",
                     label="Quantization Format",
-                    info="FP4 (NVFP4) = 75% compression with 4-bit precision | FP8 = 50% compression with 8-bit precision. FP4 recommended for production."
+                    info="FP4 (NVFP4) = 75% compression with 4-bit precision | FP4 mixed dev = NVFP4 with FP8 for select FLUX layers (larger file, higher quality) | FP8 = 50% compression with 8-bit precision."
                 )
 
                 quant_algo = gr.Dropdown(
@@ -743,7 +761,7 @@ def diffusion_quantization_tab(headless: bool = False):
             lines=28,
             max_lines=50,
             interactive=False,
-            placeholder="Click 'START QUANTIZATION' to begin...\n\nOutput file will use _NVFP4 suffix unless you provide a filename.\nIf no output path is specified, it will be saved in the same folder as your input model.",
+            placeholder="Click 'START QUANTIZATION' to begin...\n\nOutput file will use _NVFP4 suffix (_NVFP4_mixed for mixed dev) unless you provide a filename.\nIf no output path is specified, it will be saved in the same folder as your input model.",
         )
 
     with gr.Row():

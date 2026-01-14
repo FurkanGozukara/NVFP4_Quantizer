@@ -288,14 +288,14 @@ def llm_quantization_tab(headless: bool = False):
                 label="Quantization Format",
                 choices=list(LLM_QUANT_FORMATS.keys()),
                 value="NVFP4 (Default)",
-                info="NVFP4 provides ~4x compression with minimal quality loss"
+                info="NVFP4 (Default) = Standard 4-bit quantization, ~4x compression | NVFP4 AWQ = Activation-aware for better quality | NVFP4 MLP Only = Quantize only MLP layers (~2-3x compression, higher quality) | W4A8 = Mixed precision (4-bit weights, 8-bit activations, best quality)"
             )
 
             kv_cache = gr.Dropdown(
                 label="KV Cache Quantization",
                 choices=list(KV_CACHE_FORMATS.keys()),
                 value="None",
-                info="Quantize KV cache for lower inference memory usage"
+                info="Quantizes Key-Value cache during inference to reduce memory. None = Full precision (default) | FP8 = 50% KV cache reduction, minimal quality loss (recommended for long contexts) | NVFP4 = 75% reduction (use for maximum memory savings)"
             )
 
         with gr.Column():
@@ -305,7 +305,7 @@ def llm_quantization_tab(headless: bool = False):
                 label="Calibration Dataset",
                 choices=DATASETS,
                 value="cnn_dailymail",
-                info="Dataset used for quantization calibration"
+                info="Text dataset for calibration. cnn_dailymail = News articles (default, general-purpose) | pileval = Academic papers (technical models) | wikipedia = Encyclopedic content (knowledge models) | c4 = Web corpus (maximum diversity, slower)"
             )
 
             calib_size = gr.Slider(
@@ -314,7 +314,7 @@ def llm_quantization_tab(headless: bool = False):
                 maximum=2048,
                 value=512,
                 step=32,
-                info="More samples = better quality, slower (512 recommended)"
+                info="Number of text samples to measure weight/activation ranges. More samples = better statistics = higher accuracy. 512 provides excellent quality for production (recommended). 1024+ shows diminishing returns."
             )
 
             batch_size = gr.Slider(
@@ -323,7 +323,7 @@ def llm_quantization_tab(headless: bool = False):
                 maximum=32,
                 value=1,
                 step=1,
-                info="Adjust based on GPU memory (1 recommended for safety)"
+                info="Samples processed simultaneously during calibration. Higher = faster but uses more VRAM. 1-2 = Safe for most GPUs (recommended) | 4-8 = 40GB+ VRAM | 16+ = 80GB A100/H100 only. Risk: Out of Memory errors."
             )
 
             max_seq_len = gr.Slider(
@@ -332,7 +332,7 @@ def llm_quantization_tab(headless: bool = False):
                 maximum=8192,
                 value=2048,
                 step=128,
-                info="Maximum sequence length for calibration"
+                info="Maximum token sequence length for calibration samples. Determines context window during calibration. 2048 = Standard (recommended) | 4096+ = Long-context models only. Higher = more memory usage, slightly better long-context calibration."
             )
 
     gr.Markdown("---")

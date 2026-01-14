@@ -655,28 +655,28 @@ def diffusion_quantization_tab(headless: bool = False):
                     choices=["fp4", "fp8"],
                     value="fp4",
                     label="Quantization Format",
-                    info="FP4 = 75% compression, FP8 = 50% compression"
+                    info="FP4 (NVFP4) = 75% compression with 4-bit precision | FP8 = 50% compression with 8-bit precision. FP4 recommended for production."
                 )
 
                 quant_algo = gr.Dropdown(
                     choices=["svdquant", "max"],
                     value="svdquant",
                     label="Quantization Algorithm",
-                    info="SVDQuant = better quality, MAX = faster"
+                    info="SVDQuant = Uses matrix decomposition for superior quality (recommended) | MAX = Faster calibration using max absolute values (good for testing)"
                 )
 
             with gr.Row():
                 calib_size = gr.Number(
                     value=256,
                     label="Calibration Samples",
-                    info="More samples = better quality but slower (64-512)",
+                    info="Number of prompts used to measure activation ranges during calibration. More samples = better statistics = higher quality. 64=fast, 256=balanced, 512=best quality. Diminishing returns beyond 512.",
                     precision=0
                 )
 
                 n_steps = gr.Number(
                     value=20,
                     label="Denoising Steps",
-                    info="Number of steps for calibration (20-30)",
+                    info="Number of diffusion denoising iterations per calibration sample. More steps capture fuller range of model behavior. 20=sufficient, 28-30=maximum quality. Each sample runs through this many denoising steps.",
                     precision=0
                 )
 
@@ -684,27 +684,27 @@ def diffusion_quantization_tab(headless: bool = False):
                 svd_lowrank = gr.Number(
                     value=32,
                     label="SVD Lowrank",
-                    info="Used for SVDQuant algorithm (16-64)",
+                    info="For SVDQuant only: Controls matrix decomposition rank. Higher rank = more singular values kept = better quality but slower. 16=ultra-fast, 32=balanced (recommended), 64=maximum quality. Ignored for MAX algorithm.",
                     precision=0
                 )
 
                 quantize_mha = gr.Checkbox(
                     value=True,
                     label="Quantize Multi-Head Attention",
-                    info="Enable for better compression"
+                    info="Quantizes attention operations (Q,K,V projections) to FP8 for better compression. Preserves attention patterns while reducing memory. Minimal quality loss. Recommended: Enable for all models."
                 )
 
             with gr.Row():
                 compress = gr.Checkbox(
                     value=False,
                     label="Enable Compression",
-                    info="Additional model compression (experimental)"
+                    info="Applies additional compression beyond quantization for 10-20% extra size reduction. EXPERIMENTAL - may cause compatibility issues. Only for FP4/FP8. Recommended: Keep disabled unless maximum compression is critical."
                 )
 
                 convert_to_safetensors = gr.Checkbox(
                     value=True,
                     label="Auto-Convert to SafeTensors",
-                    info="✅ Enabled by default - outputs .safetensors for ComfyUI"
+                    info="✅ Enabled by default - Converts .pt output to .safetensors format for ComfyUI compatibility. SafeTensors = safer, faster loading. Disable only if using PyTorch directly."
                 )
 
     gr.Markdown("---")

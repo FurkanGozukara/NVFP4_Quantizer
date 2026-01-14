@@ -32,7 +32,7 @@ def create_ui(headless: bool = False):
         # Header
         gr.Markdown(
             """
-            # ⚡ NVFP4 Model Quantizer
+            # ⚡ NVFP4 Model Quantizer V1 : https://www.patreon.com/posts/148217625 
             ### All-in-One Tool for Quantizing AI Models to NVFP4 Format
 
             Reduce model size by 2-4x while maintaining quality using NVIDIA ModelOpt.
@@ -73,7 +73,7 @@ def create_ui(headless: bool = False):
                     3. Keep "Auto Detect" for model type
                     4. Choose **"Balanced"** preset (recommended)
                     5. Click **"START QUANTIZATION"**
-                    6. Wait 15-20 minutes
+                    6. Wait for completion (duration varies by GPU)
                     7. Get your quantized model (~75% smaller!)
 
                     ---
@@ -87,25 +87,25 @@ def create_ui(headless: bool = False):
 
                     ### Presets Explained:
 
-                    - **🚀 Best Quality (30-40 min)**
-                      - Uses SVDQuant algorithm for maximum quality
+                    - **🚀 Best Quality**
+                      - Uses MAX algorithm for maximum quality
                       - 512 calibration samples
                       - Perfect for production deployment
                       - ~75% size reduction
 
-                    - **⚡ Balanced (15-20 min)** ⭐ Recommended
+                    - **⚡ Balanced** ⭐ Recommended
                       - Best balance of quality and speed
                       - 256 calibration samples
                       - Great for most use cases
                       - ~75% size reduction
 
-                    - **💨 Fast (10-15 min)**
+                    - **💨 Fast**
                       - Quick quantization
                       - 128 calibration samples
                       - Good for testing
                       - ~75% size reduction
 
-                    - **🏃 Ultra Fast Test (5-10 min)**
+                    - **🏃 Ultra Fast Test**
                       - FP8 format (faster)
                       - 64 calibration samples
                       - Quick quality check
@@ -164,10 +164,9 @@ def create_ui(headless: bool = False):
                     - Close other GPU applications
                     - Check GPU memory with Task Manager/nvidia-smi
 
-                    ### Quantization is slow
-                    - This is normal! NVFP4 quantization takes time
-                    - FLUX: 15-40 minutes depending on preset
-                    - LLMs: 10-60 minutes depending on model size
+                    ### Quantization takes time
+                    - This is normal! NVFP4 quantization requires calibration
+                    - Duration varies based on GPU, model size, and preset
                     - Use "Fast" or "Ultra Fast" presets for quicker results
 
                     ### Poor quality after quantization
@@ -245,16 +244,11 @@ def create_ui(headless: bool = False):
 
                     ## Performance Expectations
 
-                    ### RTX 4090 / RTX 3090:
-                    - FLUX Balanced: 15-20 min
-                    - FLUX Best Quality: 30-40 min
-                    - Llama2-7B: 10-15 min
-                    - Llama2-70B: 40-60 min
-
-                    ### Lower-end GPUs (RTX 3060/3070):
-                    - Expect 1.5-2x longer times
-                    - May need to reduce calibration samples
-                    - Consider "Fast" presets
+                    - Duration varies significantly based on GPU, model size, and preset
+                    - Higher-end GPUs (RTX 4090, A6000, H100) will be faster
+                    - More calibration samples = longer processing time
+                    - Lower-end GPUs may need to reduce calibration samples
+                    - Consider "Fast" or "Ultra Fast" presets for quicker results
 
                     ---
 

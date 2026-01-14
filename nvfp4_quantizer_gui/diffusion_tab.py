@@ -34,27 +34,27 @@ except ImportError:
 # BEST PRESETS FOR DIFFUSION MODELS
 # Based on NVIDIA Model-Optimizer configs
 DIFFUSION_PRESETS = {
-    "🚀 Best Quality (30-40 min)": {
+    "🚀 Best Quality": {
         "quant_format": "fp4",
-        "quant_algo": "svdquant",
+        "quant_algo": "max",
         "calib_size": 512,
         "n_steps": 30,
         "quantize_mha": True,
         "svd_lowrank": 64,
         "compress": False,
-        "description": "Maximum quality with SVDQuant algorithm. Perfect for production use.",
+        "description": "Maximum quality with MAX algorithm. Perfect for production use.",
     },
-    "⚡ Balanced (Recommended, 15-20 min)": {
+    "⚡ Balanced (Recommended)": {
         "quant_format": "fp4",
-        "quant_algo": "svdquant",
+        "quant_algo": "max",
         "calib_size": 256,
         "n_steps": 20,
         "quantize_mha": True,
         "svd_lowrank": 32,
         "compress": False,
-        "description": "Best balance using SVDQuant with optimal calibration. Recommended for most users.",
+        "description": "Best balance using MAX algorithm with optimal calibration. Recommended for most users.",
     },
-    "💨 Fast (10-15 min)": {
+    "💨 Fast": {
         "quant_format": "fp4",
         "quant_algo": "max",
         "calib_size": 128,
@@ -64,7 +64,7 @@ DIFFUSION_PRESETS = {
         "compress": False,
         "description": "Quick quantization with MAX algorithm for faster calibration.",
     },
-    "🏃 Ultra Fast Test (5-10 min)": {
+    "🏃 Ultra Fast Test": {
         "quant_format": "fp8",
         "quant_algo": "max",
         "calib_size": 64,
@@ -647,13 +647,13 @@ def diffusion_quantization_tab(headless: bool = False):
 
             preset = gr.Radio(
                 choices=list(DIFFUSION_PRESETS.keys()),
-                value="⚡ Balanced (Recommended, 15-20 min)",
+                value="⚡ Balanced (Recommended)",
                 label="Quantization Preset",
                 info="Select a preset to auto-fill parameters below, then customize if needed"
             )
 
             preset_info = gr.Markdown(
-                DIFFUSION_PRESETS["⚡ Balanced (Recommended, 15-20 min)"]["description"],
+                DIFFUSION_PRESETS["⚡ Balanced (Recommended)"]["description"],
                 elem_id="preset-info"
             )
 
@@ -674,9 +674,9 @@ def diffusion_quantization_tab(headless: bool = False):
 
                 quant_algo = gr.Dropdown(
                     choices=["svdquant", "max"],
-                    value="svdquant",
+                    value="max",
                     label="Quantization Algorithm",
-                    info="SVDQuant = Uses matrix decomposition for superior quality (recommended) | MAX = Faster calibration using max absolute values (good for testing)"
+                    info="MAX = Faster calibration using max absolute values (recommended) | SVDQuant = Uses matrix decomposition for superior quality but slower"
                 )
 
             with gr.Row():
@@ -733,7 +733,7 @@ def diffusion_quantization_tab(headless: bool = False):
                 size="lg",
             )
 
-            gr.Markdown("*Estimated time: 15-40 minutes depending on preset and GPU*")
+            gr.Markdown("*Duration varies based on GPU, model size, and preset*")
 
     gr.Markdown("---")
 

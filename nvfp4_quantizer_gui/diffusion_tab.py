@@ -21,6 +21,13 @@ from .common_utils import (
     get_model_size,
 )
 
+try:
+    import torch
+    from safetensors.torch import save_file as safetensors_save
+    SAFETENSORS_AVAILABLE = True
+except ImportError:
+    SAFETENSORS_AVAILABLE = False
+
 # BEST PRESETS FOR DIFFUSION MODELS
 # Based on NVIDIA Model-Optimizer configs
 DIFFUSION_PRESETS = {
@@ -99,9 +106,16 @@ def auto_detect_model_type(path: str) -> str:
 
 def run_diffusion_quantization(
     model_path: str,
-    preset_name: str,
     model_type_ui: str,
     output_folder: str,
+    quant_format: str,
+    quant_algo: str,
+    calib_size: int,
+    n_steps: int,
+    svd_lowrank: int,
+    quantize_mha: bool,
+    compress: bool,
+    convert_to_safetensors: bool,
     vae_path: str = "",
     text_encoder_path: str = "",
     text_encoder_2_path: str = "",
@@ -140,12 +154,9 @@ def run_diffusion_quantization(
 
         model_type = DIFFUSION_MODELS[detected_type]
 
-        # Get preset parameters
-        params = DIFFUSION_PRESETS[preset_name]
-
         # Generate output path
         input_path = Path(model_path)
-        suffix = "_NVFP4_HQ" if "Best" in preset_name else "_NVFP4"
+        suffix = "_NVFP4_custom" if quant_format == "fp4" else "_FP8_custom"
 
         # Use custom output folder if provided, otherwise save in same folder
         if output_folder and output_folder.strip():
@@ -163,27 +174,27 @@ def run_diffusion_quantization(
             str(VENV_PYTHON),
             str(DIFFUSION_SCRIPT),
             "--model", model_type,
-            "--format", params["quant_format"],
-            "--quant-algo", params["quant_algo"],
+            "--format", quant_format,
+            "--quant-algo", quant_algo,
             "--model-dtype", "BFloat16",
             "--trt-high-precision-dtype", "BFloat16",
-            "--calib-size", str(params["calib_size"]),
+            "--calib-size", str(int(calib_size)),
             "--batch-size", "2",
-            "--n-steps", str(params["n_steps"]),
+            "--n-steps", str(int(n_steps)),
             "--override-model-path", str(model_path),
             "--quantized-torch-ckpt-save-path", str(output_path),
         ]
 
         # Add MHA quantization flag
-        if params["quantize_mha"]:
+        if quantize_mha:
             cmd.append("--quantize-mha")
 
         # Add lowrank parameter for SVDQuant
-        if params["quant_algo"] == "svdquant":
-            cmd.extend(["--lowrank", str(params["svd_lowrank"])])
+        if quant_algo == "svdquant":
+            cmd.extend(["--lowrank", str(int(svd_lowrank))])
 
         # Add compression flag if enabled
-        if params.get("compress", False):
+        if compress:
             cmd.append("--compress")
 
         # Add local component paths if provided
@@ -210,18 +221,25 @@ def run_diffusion_quantization(
         result += f"💾 Output File:\n"
         result += f"   {output_path.name}\n\n"
 
-        result += f"🎯 Model Type: {detected_type}\n"
-        result += f"⚙️  Preset: {preset_name}\n"
-        result += f"   {params['description']}\n\n"
+        result += f"🎯 Model Type: {detected_type}\n\n"
 
-        result += f"🔢 Quantization:\n"
-        result += f"   Format: {params['quant_format'].upper()}\n"
-        result += f"   Algorithm: {params['quant_algo'].upper()}\n"
-        result += f"   MHA: {'Enabled' if params['quantize_mha'] else 'Disabled'}\n\n"
+        result += f"🔢 Quantization Settings:\n"
+        result += f"   Format: {quant_format.upper()}\n"
+        result += f"   Algorithm: {quant_algo.upper()}\n"
+        result += f"   MHA: {'Enabled' if quantize_mha else 'Disabled'}\n"
+        result += f"   Compress: {'Enabled' if compress else 'Disabled'}\n\n"
 
         result += f"📊 Calibration:\n"
-        result += f"   Samples: {params['calib_size']}\n"
-        result += f"   Steps: {params['n_steps']}\n\n"
+        result += f"   Samples: {calib_size}\n"
+        result += f"   Steps: {n_steps}\n"
+        if quant_algo == "svdquant":
+            result += f"   SVD Lowrank: {svd_lowrank}\n"
+        result += "\n"
+
+        result += "ℹ️  Note: Calibration runs in 2 passes for optimal quality:\n"
+        result += "   Pass 1: Transformer blocks calibration\n"
+        result += "   Pass 2: Additional components (MHA, normalization)\n"
+        result += "   This is normal and will complete automatically.\n\n"
 
         result += "═" * 80 + "\n\n"
 
@@ -302,27 +320,65 @@ def run_diffusion_quantization(
         # Check success
         if process.returncode == 0 and output_path.exists():
             output_size = get_model_size(str(output_path))
+            final_output_path = output_path
+
+            # Convert to safetensors if requested
+            if convert_to_safetensors and SAFETENSORS_AVAILABLE:
+                try:
+                    progress(0.96, desc="🔄 Converting to SafeTensors...")
+                    result += "\n📝 Converting to SafeTensors format...\n"
+
+                    safetensors_path = output_path.with_suffix('.safetensors')
+
+                    # Load the PyTorch checkpoint
+                    result += f"   Loading {output_path.name}...\n"
+                    checkpoint = torch.load(str(output_path), map_location='cpu')
+
+                    # Extract state dict if wrapped
+                    if isinstance(checkpoint, dict) and 'state_dict' in checkpoint:
+                        state_dict = checkpoint['state_dict']
+                    else:
+                        state_dict = checkpoint
+
+                    # Save as safetensors
+                    result += f"   Saving as {safetensors_path.name}...\n"
+                    safetensors_save(state_dict, str(safetensors_path))
+
+                    if safetensors_path.exists():
+                        safetensors_size = get_model_size(str(safetensors_path))
+                        result += f"   ✅ SafeTensors conversion complete! ({safetensors_size})\n\n"
+                        final_output_path = safetensors_path
+                        output_size = safetensors_size
+                    else:
+                        result += "   ⚠️ SafeTensors conversion failed, using .pt file\n\n"
+
+                except Exception as e:
+                    result += f"   ⚠️ SafeTensors conversion error: {str(e)}\n"
+                    result += f"   Using .pt file instead\n\n"
+            elif convert_to_safetensors and not SAFETENSORS_AVAILABLE:
+                result += "\n⚠️ SafeTensors library not available, using .pt format\n\n"
 
             result += "\n" + "╔" + "═" * 78 + "╗\n"
             result += "║" + " " * 32 + "✅ SUCCESS!" + " " * 33 + "║\n"
             result += "╚" + "═" * 78 + "╝\n\n"
 
             result += f"📦 Quantized Model Saved:\n"
-            result += f"   {output_path}\n\n"
+            result += f"   {final_output_path}\n\n"
 
             result += f"📊 File Sizes:\n"
             result += f"   Original: {orig_size}\n"
             result += f"   Quantized: {output_size}\n\n"
 
-            result += f"✨ Your NVFP4 model is ready!\n\n"
+            result += f"✨ Your {'SafeTensors' if final_output_path.suffix == '.safetensors' else 'NVFP4'} model is ready!\n\n"
 
             result += f"📝 Next Steps:\n"
             result += f"   • Test with sample generations\n"
             result += f"   • Compare quality with original\n"
-            result += f"   • Convert to .safetensors if needed for ComfyUI\n"
+            if final_output_path.suffix != '.safetensors':
+                result += f"   • Convert to .safetensors if needed for ComfyUI\n"
 
             progress(1.0, desc="✅ Complete!")
-            return result, str(output_path)
+            return result, str(final_output_path)
 
         else:
             result += "\n" + "═" * 80 + "\n"
@@ -426,19 +482,83 @@ def diffusion_quantization_tab(headless: bool = False):
 
     with gr.Row():
         with gr.Column(scale=1):
-            gr.Markdown("### ⚙️ Step 2: Choose Quality Preset")
+            gr.Markdown("### ⚙️ Step 2: Choose Quality Preset or Customize")
 
             preset = gr.Radio(
                 choices=list(DIFFUSION_PRESETS.keys()),
                 value="⚡ Balanced (Recommended, 15-20 min)",
                 label="Quantization Preset",
-                info="All parameters pre-configured for optimal results"
+                info="Select a preset to auto-fill parameters below, then customize if needed"
             )
 
             preset_info = gr.Markdown(
                 DIFFUSION_PRESETS["⚡ Balanced (Recommended, 15-20 min)"]["description"],
                 elem_id="preset-info"
             )
+
+    gr.Markdown("---")
+
+    with gr.Row():
+        with gr.Column(scale=1):
+            gr.Markdown("### 🔧 Advanced Parameters (Customizable)")
+            gr.Markdown("*These are auto-filled from preset. You can modify any parameter below.*")
+
+            with gr.Row():
+                quant_format = gr.Dropdown(
+                    choices=["fp4", "fp8"],
+                    value="fp4",
+                    label="Quantization Format",
+                    info="FP4 = 75% compression, FP8 = 50% compression"
+                )
+
+                quant_algo = gr.Dropdown(
+                    choices=["svdquant", "max"],
+                    value="svdquant",
+                    label="Quantization Algorithm",
+                    info="SVDQuant = better quality, MAX = faster"
+                )
+
+            with gr.Row():
+                calib_size = gr.Number(
+                    value=256,
+                    label="Calibration Samples",
+                    info="More samples = better quality but slower (64-512)",
+                    precision=0
+                )
+
+                n_steps = gr.Number(
+                    value=20,
+                    label="Denoising Steps",
+                    info="Number of steps for calibration (20-30)",
+                    precision=0
+                )
+
+            with gr.Row():
+                svd_lowrank = gr.Number(
+                    value=32,
+                    label="SVD Lowrank",
+                    info="Used for SVDQuant algorithm (16-64)",
+                    precision=0
+                )
+
+                quantize_mha = gr.Checkbox(
+                    value=True,
+                    label="Quantize Multi-Head Attention",
+                    info="Enable for better compression"
+                )
+
+            with gr.Row():
+                compress = gr.Checkbox(
+                    value=False,
+                    label="Enable Compression",
+                    info="Additional model compression (experimental)"
+                )
+
+                convert_to_safetensors = gr.Checkbox(
+                    value=True,
+                    label="Auto-Convert to SafeTensors",
+                    info="✅ Enabled by default - outputs .safetensors for ComfyUI"
+                )
 
     gr.Markdown("---")
 
@@ -472,14 +592,24 @@ def diffusion_quantization_tab(headless: bool = False):
             placeholder="Output file path will appear here after completion",
         )
 
-    # Update preset info on change
-    def update_preset_info(preset_name: str):
-        return DIFFUSION_PRESETS[preset_name]["description"]
+    # Update preset info and parameters on change
+    def update_preset_params(preset_name: str):
+        params = DIFFUSION_PRESETS[preset_name]
+        return (
+            params["description"],  # preset_info
+            params["quant_format"],  # quant_format
+            params["quant_algo"],  # quant_algo
+            params["calib_size"],  # calib_size
+            params["n_steps"],  # n_steps
+            params["svd_lowrank"],  # svd_lowrank
+            params["quantize_mha"],  # quantize_mha
+            params["compress"],  # compress
+        )
 
     preset.change(
-        fn=update_preset_info,
+        fn=update_preset_params,
         inputs=[preset],
-        outputs=[preset_info],
+        outputs=[preset_info, quant_format, quant_algo, calib_size, n_steps, svd_lowrank, quantize_mha, compress],
         show_progress=False,
     )
 
@@ -521,7 +651,22 @@ def diffusion_quantization_tab(headless: bool = False):
     # Main quantization
     quantize_btn.click(
         fn=run_diffusion_quantization,
-        inputs=[model_path, preset, model_type, output_folder, vae_path, text_encoder_path, text_encoder_2_path],
+        inputs=[
+            model_path,
+            model_type,
+            output_folder,
+            quant_format,
+            quant_algo,
+            calib_size,
+            n_steps,
+            svd_lowrank,
+            quantize_mha,
+            compress,
+            convert_to_safetensors,
+            vae_path,
+            text_encoder_path,
+            text_encoder_2_path
+        ],
         outputs=[output_logs, output_file],
         show_progress=True,
     )

@@ -207,31 +207,35 @@ def run_diffusion_quantization(
 
         progress(0.25, desc="🚀 Starting quantization...")
 
-        # Format output header
+        # Format output header with DETAILED LOGGING
         orig_size = get_model_size(model_path)
 
         result = "╔" + "═" * 78 + "╗\n"
         result += "║" + " " * 22 + "FLUX/DIFFUSION QUANTIZATION" + " " * 29 + "║\n"
         result += "╚" + "═" * 78 + "╝\n\n"
 
-        result += f"📁 Input File:\n"
-        result += f"   {input_path.name}\n"
-        result += f"   Size: {orig_size}\n\n"
+        result += f"📁 Input Configuration:\n"
+        result += f"   Model Path: {model_path}\n"
+        result += f"   Model Name: {input_path.name}\n"
+        result += f"   Model Size: {orig_size}\n"
+        result += f"   Model Type: {detected_type}\n\n"
 
-        result += f"💾 Output File:\n"
-        result += f"   {output_path.name}\n\n"
-
-        result += f"🎯 Model Type: {detected_type}\n\n"
+        result += f"💾 Output Configuration:\n"
+        result += f"   User Provided Output Folder: {'YES - ' + output_folder if output_folder and output_folder.strip() else 'NO (using input folder)'}\n"
+        result += f"   Calculated Output Path: {output_path}\n"
+        result += f"   Output File Name: {output_path.name}\n"
+        result += f"   Output Folder: {output_path.parent}\n"
+        result += f"   Convert to SafeTensors: {'✅ YES' if convert_to_safetensors else '❌ NO'}\n\n"
 
         result += f"🔢 Quantization Settings:\n"
         result += f"   Format: {quant_format.upper()}\n"
         result += f"   Algorithm: {quant_algo.upper()}\n"
-        result += f"   MHA: {'Enabled' if quantize_mha else 'Disabled'}\n"
-        result += f"   Compress: {'Enabled' if compress else 'Disabled'}\n\n"
+        result += f"   MHA Quantization: {'Enabled' if quantize_mha else 'Disabled'}\n"
+        result += f"   Compression: {'Enabled' if compress else 'Disabled'}\n\n"
 
-        result += f"📊 Calibration:\n"
-        result += f"   Samples: {calib_size}\n"
-        result += f"   Steps: {n_steps}\n"
+        result += f"📊 Calibration Settings:\n"
+        result += f"   Calibration Samples: {calib_size}\n"
+        result += f"   Denoising Steps: {n_steps}\n"
         if quant_algo == "svdquant":
             result += f"   SVD Lowrank: {svd_lowrank}\n"
         result += "\n"
@@ -240,6 +244,26 @@ def run_diffusion_quantization(
         result += "   Pass 1: Transformer blocks calibration\n"
         result += "   Pass 2: Additional components (MHA, normalization)\n"
         result += "   This is normal and will complete automatically.\n\n"
+
+        result += "═" * 80 + "\n\n"
+
+        # Log the full command for debugging
+        result += "🔍 Command Being Executed:\n"
+        cmd_str = " ".join([f'"{arg}"' if " " in str(arg) else str(arg) for arg in cmd])
+        # Truncate extremely long commands
+        if len(cmd_str) > 500:
+            result += f"   {cmd_str[:500]}...\n"
+            result += f"   (command truncated - total length: {len(cmd_str)} chars)\n"
+        else:
+            result += f"   {cmd_str}\n"
+        result += "\n"
+        result += f"🔍 Key Arguments Check:\n"
+        if "--quantized-torch-ckpt-save-path" in cmd:
+            idx = cmd.index("--quantized-torch-ckpt-save-path")
+            result += f"   ✅ --quantized-torch-ckpt-save-path: {cmd[idx+1]}\n"
+        else:
+            result += f"   ❌ --quantized-torch-ckpt-save-path: NOT FOUND IN COMMAND!\n"
+        result += "\n"
 
         result += "═" * 80 + "\n\n"
 
@@ -310,12 +334,32 @@ def run_diffusion_quantization(
         process.wait()
 
         # Append logs (last 80 lines to keep it manageable)
-        result += "📝 Quantization Logs:\n"
+        result += "📝 Quantization Logs (last 80 lines):\n"
         result += "─" * 80 + "\n"
         result += "".join(output_lines[-80:])
         result += "─" * 80 + "\n\n"
 
         progress(0.95, desc="✨ Finalizing...")
+
+        # Debug: Check if file was created and if save log was seen
+        result += f"\n🔍 Post-Quantization File Check:\n"
+        result += f"   Expected Path: {output_path}\n"
+        result += f"   File Exists: {'✅ YES' if output_path.exists() else '❌ NO'}\n"
+        if output_path.exists():
+            result += f"   File Size: {get_model_size(str(output_path))}\n"
+
+        # Check if the NVIDIA script logged that it saved the file
+        all_logs = "".join(output_lines)
+        if "Saving quantized checkpoint" in all_logs:
+            result += f"   Save Log Found: ✅ YES - Script attempted to save\n"
+        else:
+            result += f"   Save Log Found: ❌ NO - Script did not log save attempt!\n"
+
+        if "Checkpoint saved successfully" in all_logs:
+            result += f"   Save Success Log: ✅ YES - Script confirmed save\n"
+        else:
+            result += f"   Save Success Log: ❌ NO - Script did not confirm save\n"
+        result += "\n"
 
         # Check success
         if process.returncode == 0 and output_path.exists():
@@ -323,40 +367,55 @@ def run_diffusion_quantization(
             final_output_path = output_path
 
             # Convert to safetensors if requested
+            result += "\n🔄 SafeTensors Conversion Process:\n"
+            result += f"   Conversion Requested: {'✅ YES' if convert_to_safetensors else '❌ NO'}\n"
+            result += f"   SafeTensors Library Available: {'✅ YES' if SAFETENSORS_AVAILABLE else '❌ NO'}\n\n"
+
             if convert_to_safetensors and SAFETENSORS_AVAILABLE:
                 try:
                     progress(0.96, desc="🔄 Converting to SafeTensors...")
-                    result += "\n📝 Converting to SafeTensors format...\n"
+                    result += "   Starting conversion...\n"
 
                     safetensors_path = output_path.with_suffix('.safetensors')
+                    result += f"   Target Path: {safetensors_path}\n\n"
 
                     # Load the PyTorch checkpoint
-                    result += f"   Loading {output_path.name}...\n"
+                    result += f"   📂 Loading .pt file: {output_path.name}\n"
                     checkpoint = torch.load(str(output_path), map_location='cpu')
 
                     # Extract state dict if wrapped
                     if isinstance(checkpoint, dict) and 'state_dict' in checkpoint:
+                        result += f"   📋 Extracting state_dict from checkpoint dict\n"
                         state_dict = checkpoint['state_dict']
                     else:
+                        result += f"   📋 Using checkpoint directly as state_dict\n"
                         state_dict = checkpoint
 
+                    result += f"   💾 Saving as SafeTensors: {safetensors_path.name}\n"
                     # Save as safetensors
-                    result += f"   Saving as {safetensors_path.name}...\n"
                     safetensors_save(state_dict, str(safetensors_path))
 
                     if safetensors_path.exists():
                         safetensors_size = get_model_size(str(safetensors_path))
-                        result += f"   ✅ SafeTensors conversion complete! ({safetensors_size})\n\n"
+                        result += f"   ✅ Conversion SUCCESS!\n"
+                        result += f"   📦 SafeTensors File: {safetensors_path.name}\n"
+                        result += f"   📊 Size: {safetensors_size}\n\n"
                         final_output_path = safetensors_path
                         output_size = safetensors_size
                     else:
-                        result += "   ⚠️ SafeTensors conversion failed, using .pt file\n\n"
+                        result += "   ❌ Conversion FAILED - file not created!\n"
+                        result += "   ⚠️ Using .pt file instead\n\n"
 
                 except Exception as e:
-                    result += f"   ⚠️ SafeTensors conversion error: {str(e)}\n"
-                    result += f"   Using .pt file instead\n\n"
+                    result += f"   ❌ Conversion ERROR: {str(e)}\n"
+                    result += f"   ⚠️ Using .pt file instead\n\n"
             elif convert_to_safetensors and not SAFETENSORS_AVAILABLE:
-                result += "\n⚠️ SafeTensors library not available, using .pt format\n\n"
+                result += "   ⚠️ SafeTensors library not installed!\n"
+                result += "   ℹ️  Install with: pip install safetensors\n"
+                result += "   Using .pt format\n\n"
+            else:
+                result += "   ℹ️  Skipping conversion (not requested)\n"
+                result += "   Using .pt format\n\n"
 
             result += "\n" + "╔" + "═" * 78 + "╗\n"
             result += "║" + " " * 32 + "✅ SUCCESS!" + " " * 33 + "║\n"
@@ -382,8 +441,18 @@ def run_diffusion_quantization(
 
         else:
             result += "\n" + "═" * 80 + "\n"
-            result += f"❌ QUANTIZATION FAILED (Exit Code: {process.returncode})\n\n"
-            result += "Please check the logs above for error details.\n\n"
+
+            if process.returncode == 0 and not output_path.exists():
+                result += f"❌ QUANTIZATION COMPLETED BUT FILE NOT SAVED!\n\n"
+                result += f"The quantization script finished successfully (exit code 0),\n"
+                result += f"but the expected output file was not created:\n"
+                result += f"   {output_path}\n\n"
+                result += f"This usually means the --quantized-torch-ckpt-save-path argument\n"
+                result += f"was not processed correctly by the script.\n\n"
+                result += f"💡 Check the logs above for any 'Saving checkpoint' messages.\n"
+            else:
+                result += f"❌ QUANTIZATION FAILED (Exit Code: {process.returncode})\n\n"
+                result += "Please check the logs above for error details.\n\n"
 
             if "CUDA out of memory" in "".join(output_lines):
                 result += "💡 TIP: Out of memory error detected.\n"

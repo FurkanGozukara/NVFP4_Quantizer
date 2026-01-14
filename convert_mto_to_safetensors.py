@@ -1,16 +1,17 @@
 #!/usr/bin/env python3
 """
-Convert NVIDIA ModelOpt checkpoint to SafeTensors with proper quantization metadata
+Convert NVIDIA ModelOpt checkpoint to SafeTensors with ComfyUI metadata.
 """
 
+from __future__ import annotations
+
 import argparse
-import json
+import logging
 import sys
 from pathlib import Path
 
 try:
     import torch
-    from safetensors.torch import save_file
     import modelopt.torch.opt as mto
 except ImportError as e:
     print(f"Error: Missing required libraries: {e}")
@@ -18,42 +19,52 @@ except ImportError as e:
     sys.exit(1)
 
 
+def _load_export_helper():
+    repo_root = Path(__file__).resolve().parent
+    helper_dir = repo_root / "Model-Optimizer" / "examples" / "diffusers" / "quantization"
+    if not helper_dir.exists():
+        raise FileNotFoundError(f"Export helper not found: {helper_dir}")
+    sys.path.insert(0, str(helper_dir))
+    from save_quantized_safetensors import save_quantized_safetensors
+    return save_quantized_safetensors
+
+
+def _setup_logger() -> logging.Logger:
+    logger = logging.getLogger("convert_mto_to_safetensors")
+    if not logger.handlers:
+        handler = logging.StreamHandler(sys.stdout)
+        handler.setFormatter(
+            logging.Formatter("%(asctime)s | %(levelname)-8s | %(message)s", "%Y-%m-%d %H:%M:%S")
+        )
+        logger.addHandler(handler)
+    logger.setLevel(logging.INFO)
+    return logger
+
+
 def convert_mto_to_safetensors(
-    mto_checkpoint_path,
-    output_safetensors_path,
-    quant_format="nvfp4",
-    quant_algo="svdquant",
-    model_type="flux-dev"
-):
+    mto_checkpoint_path: str,
+    output_safetensors_path: str,
+    quant_format: str = "nvfp4",
+    quant_algo: str = "svdquant",
+    model_type: str = "flux-dev",
+) -> bool:
     """
     Convert NVIDIA ModelOpt .pt checkpoint to SafeTensors with ComfyUI metadata.
-
-    Args:
-        mto_checkpoint_path: Path to ModelOpt .pt checkpoint
-        output_safetensors_path: Path for output .safetensors file
-        quant_format: Quantization format ('nvfp4' or 'float8_e4m3fn')
-        quant_algo: Quantization algorithm used
-        model_type: Model type (flux-dev, sd3-medium, etc.)
     """
+    logger = _setup_logger()
     mto_path = Path(mto_checkpoint_path)
     if not mto_path.exists():
         raise FileNotFoundError(f"ModelOpt checkpoint not found: {mto_path}")
 
     output_path = Path(output_safetensors_path)
 
-    print(f"📂 Loading ModelOpt checkpoint: {mto_path}")
-    print(f"   Format: {quant_format}, Algorithm: {quant_algo}")
+    logger.info("Loading ModelOpt checkpoint: %s", mto_path)
+    logger.info("Format: %s | Algorithm: %s | Model type: %s", quant_format, quant_algo, model_type)
 
-    # Create a dummy backbone model to restore into
-    # We need to know the model architecture
-    print(f"\n⚠️  NOTE: This requires loading the base model first!")
-    print(f"   Model type: {model_type}")
-
-    # Load base model
+    logger.info("Preparing base transformer architecture...")
     from diffusers import FluxTransformer2DModel, StableDiffusion3Transformer2DModel
 
     if model_type in ["flux-dev", "flux-schnell"]:
-        print("📦 Creating FLUX transformer architecture...")
         backbone = FluxTransformer2DModel(
             attention_head_dim=128,
             guidance_embeds=True,
@@ -66,7 +77,6 @@ def convert_mto_to_safetensors(
             pooled_projection_dim=768,
         )
     elif model_type in ["sd3-medium", "sd3.5-medium"]:
-        print("📦 Creating SD3 transformer architecture...")
         backbone = StableDiffusion3Transformer2DModel.from_pretrained(
             "stabilityai/stable-diffusion-3-medium",
             subfolder="transformer",
@@ -75,111 +85,56 @@ def convert_mto_to_safetensors(
     else:
         raise ValueError(f"Unsupported model type: {model_type}")
 
-    print(f"✅ Base model created")
-
-    # Restore quantized weights using ModelOpt
-    print(f"\n🔄 Restoring quantized weights from ModelOpt checkpoint...")
+    logger.info("Restoring quantized weights from ModelOpt checkpoint...")
     mto.restore(backbone, str(mto_path))
-    print(f"✅ Quantized weights restored")
+    logger.info("Quantized weights restored.")
 
-    # Extract state dict
-    print(f"\n📋 Extracting state dict...")
-    state_dict = backbone.state_dict()
-
-    # Check for quantized layers
-    quant_layers = {}
-    weight_scale_count = 0
-    input_scale_count = 0
-
-    for key in state_dict.keys():
-        if '.weight_scale' in key or '.input_scale' in key:
-            if '.weight_scale' in key:
-                weight_scale_count += 1
-            if '.input_scale' in key:
-                input_scale_count += 1
-
-            layer_name = key.rsplit('.', 1)[0]
-            if layer_name not in quant_layers:
-                quant_layers[layer_name] = {"format": quant_format}
-
-    print(f"✅ Found {len(quant_layers)} quantized layers")
-    print(f"   Weight scales: {weight_scale_count}")
-    print(f"   Input scales: {input_scale_count}")
-
-    if not quant_layers:
-        print("❌ ERROR: No quantized layers found!")
-        print("   The checkpoint may not be properly quantized.")
-        return False
-
-    # Add ComfyUI metadata
-    print(f"\n🔧 Adding ComfyUI-compatible metadata...")
-    for layer_name, layer_config in quant_layers.items():
-        comfy_quant_key = f"{layer_name}.comfy_quant"
-        comfy_quant_value = json.dumps(layer_config).encode('utf-8')
-        state_dict[comfy_quant_key] = torch.tensor(list(comfy_quant_value), dtype=torch.uint8)
-
-    # Build metadata
-    metadata = {
-        "_quantization_metadata": json.dumps({
-            "layers": quant_layers,
-            "format": quant_format,
-            "quant_algo": quant_algo,
-            "version": "1.0",
-            "model_type": model_type
-        })
-    }
-
-    # Save as safetensors
-    print(f"\n💾 Saving to SafeTensors: {output_path}")
-    save_file(state_dict, str(output_path), metadata=metadata)
-
-    if output_path.exists():
-        size_mb = output_path.stat().st_size / (1024 * 1024)
-        print(f"✅ SUCCESS! Saved to: {output_path}")
-        print(f"   File size: {size_mb:.2f} MB")
-        print(f"\n📊 Quantization Summary:")
-        print(f"   Format: {quant_format}")
-        print(f"   Algorithm: {quant_algo}")
-        print(f"   Quantized layers: {len(quant_layers)}")
-        print(f"   Model type: {model_type}")
-        print(f"\n✨ Your model is now ready for ComfyUI!")
-        return True
-    else:
-        print("❌ ERROR: Failed to save SafeTensors file!")
-        return False
+    save_quantized_safetensors = _load_export_helper()
+    success = save_quantized_safetensors(
+        backbone,
+        output_path,
+        quant_format=quant_format,
+        quant_algo=quant_algo,
+        logger=logger,
+    )
+    return success
 
 
-def main():
+def main() -> None:
     parser = argparse.ArgumentParser(
         description="Convert NVIDIA ModelOpt checkpoint to SafeTensors with ComfyUI metadata",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
-  # Convert FLUX model
   python convert_mto_to_safetensors.py model_NVFP4.pt output.safetensors --model-type flux-dev
-
-  # Convert SD3 model with explicit format
   python convert_mto_to_safetensors.py model.pt output.safetensors --model-type sd3-medium --format nvfp4 --algo svdquant
-        """
+        """,
     )
 
     parser.add_argument("input", type=str, help="Input ModelOpt .pt checkpoint")
     parser.add_argument("output", type=str, help="Output .safetensors file")
-    parser.add_argument("--model-type", type=str, required=True,
-                        choices=["flux-dev", "flux-schnell", "sd3-medium", "sd3.5-medium"],
-                        help="Model architecture type")
-    parser.add_argument("--format", type=str, default="nvfp4",
-                        choices=["nvfp4", "float8_e4m3fn"],
-                        help="Quantization format")
-    parser.add_argument("--algo", type=str, default="svdquant",
-                        help="Quantization algorithm")
+    parser.add_argument(
+        "--model-type",
+        type=str,
+        required=True,
+        choices=["flux-dev", "flux-schnell", "sd3-medium", "sd3.5-medium"],
+        help="Model architecture type",
+    )
+    parser.add_argument(
+        "--format",
+        type=str,
+        default="nvfp4",
+        choices=["nvfp4", "float8_e4m3fn"],
+        help="Quantization format",
+    )
+    parser.add_argument(
+        "--algo",
+        type=str,
+        default="svdquant",
+        help="Quantization algorithm",
+    )
 
     args = parser.parse_args()
-
-    print("=" * 80)
-    print("  CONVERT NVIDIA MODELOPT TO SAFETENSORS")
-    print("=" * 80)
-    print()
 
     try:
         success = convert_mto_to_safetensors(
@@ -187,19 +142,13 @@ Examples:
             args.output,
             args.format,
             args.algo,
-            args.model_type
+            args.model_type,
         )
-
-        if success:
-            print("\n" + "=" * 80)
-            sys.exit(0)
-        else:
-            print("\n" + "=" * 80)
-            sys.exit(1)
-
-    except Exception as e:
-        print(f"\n❌ ERROR: {e}")
+        sys.exit(0 if success else 1)
+    except Exception as exc:
+        print(f"ERROR: {exc}")
         import traceback
+
         traceback.print_exc()
         sys.exit(1)
 

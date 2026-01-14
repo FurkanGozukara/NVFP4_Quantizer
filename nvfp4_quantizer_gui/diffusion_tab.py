@@ -3,6 +3,7 @@ Diffusion Models Quantization Tab
 For FLUX, SD3, SDXL models
 """
 
+import json
 import os
 import re
 import subprocess
@@ -24,6 +25,7 @@ from .common_utils import (
 
 try:
     import torch
+    from safetensors import safe_open
     from safetensors.torch import save_file as safetensors_save
     SAFETENSORS_AVAILABLE = True
 except ImportError:
@@ -83,6 +85,27 @@ DIFFUSION_MODELS = {
     "SDXL Base": "sdxl-1.0",
     "SDXL Turbo": "sdxl-turbo",
 }
+
+
+def is_valid_quantized_safetensors(path: Path) -> bool:
+    if not SAFETENSORS_AVAILABLE or not path.exists():
+        return False
+    try:
+        with safe_open(str(path), framework="pt", device="cpu") as f:
+            metadata = f.metadata() or {}
+            if "_quantization_metadata" in metadata:
+                try:
+                    layers = json.loads(metadata["_quantization_metadata"]).get("layers", {})
+                    if layers:
+                        return True
+                except Exception:
+                    pass
+            for key in f.keys():
+                if key.endswith(".weight_scale") or key.endswith(".input_scale"):
+                    return True
+    except Exception:
+        return False
+    return False
 
 
 def auto_detect_model_type(path: str) -> str:
@@ -424,98 +447,57 @@ def run_diffusion_quantization(
 
             if convert_to_safetensors and SAFETENSORS_AVAILABLE:
                 try:
-                    progress(0.96, desc="🔄 Converting to SafeTensors...")
+                    progress(0.96, desc="Converting to SafeTensors...")
                     result += "   Starting conversion...\n"
 
                     safetensors_path = safetensors_target_path or output_path.with_suffix('.safetensors')
                     result += f"   Target Path: {safetensors_path}\n\n"
 
-                    # Load the PyTorch checkpoint
-                    result += f"   📂 Loading .pt file: {output_path.name}\n"
-                    checkpoint = torch.load(str(output_path), map_location='cpu')
-
-                    # Extract state dict if wrapped
-                    if isinstance(checkpoint, dict) and 'state_dict' in checkpoint:
-                        result += f"   📋 Extracting state_dict from checkpoint dict\n"
-                        state_dict = checkpoint['state_dict']
-                    else:
-                        result += f"   📋 Using checkpoint directly as state_dict\n"
-                        state_dict = checkpoint
-
-                    result += f"   💾 Saving as SafeTensors: {safetensors_path.name}\n"
-                    # Normalize checkpoint content for safetensors conversion
-                    if isinstance(state_dict, dict):
-                        if 'model_state_dict' in state_dict and isinstance(state_dict['model_state_dict'], dict):
-                            result += "   Using model_state_dict from checkpoint\n"
-                            state_dict = state_dict['model_state_dict']
-                        elif 'state_dict' in state_dict and isinstance(state_dict['state_dict'], dict):
-                            result += "   Using state_dict from checkpoint\n"
-                            state_dict = state_dict['state_dict']
-
-                        non_tensor_keys = [
-                            k for k, v in state_dict.items() if not isinstance(v, torch.Tensor)
-                        ]
-                        if non_tensor_keys:
-                            result += "   Warning: removing non-tensor entries before safetensors save\n"
-                            state_dict = {
-                                k: v for k, v in state_dict.items() if isinstance(v, torch.Tensor)
-                            }
-                        if not state_dict:
-                            raise ValueError("No tensors found in checkpoint for SafeTensors conversion.")
-                    else:
-                        raise TypeError(
-                            "SafeTensors conversion requires a dict of tensors as state_dict."
-                        )
-
-                    # Build ComfyUI-compatible quantization metadata
-                    result += "   🔧 Building quantization metadata for ComfyUI...\n"
-                    import json
-                    quant_layers = {}
-                    quant_format_str = "nvfp4" if quant_format == "fp4" else "float8_e4m3fn"
-
-                    # Scan for quantized layers (look for weight_scale and input_scale keys)
-                    for key in state_dict.keys():
-                        if key.endswith('.weight_scale') or key.endswith('.input_scale'):
-                            layer_name = key.rsplit('.', 1)[0]
-                            if layer_name not in quant_layers:
-                                quant_layers[layer_name] = {"format": quant_format_str}
-
-                    # Add .comfy_quant keys for each quantized layer
-                    for layer_name, layer_config in quant_layers.items():
-                        comfy_quant_key = f"{layer_name}.comfy_quant"
-                        comfy_quant_value = json.dumps(layer_config).encode('utf-8')
-                        state_dict[comfy_quant_key] = torch.tensor(list(comfy_quant_value), dtype=torch.uint8)
-
-                    result += f"   ✅ Added quantization metadata for {len(quant_layers)} layers (format: {quant_format_str})\n"
-
-                    # Build metadata for safetensors file
-                    metadata = {
-                        "_quantization_metadata": json.dumps({
-                            "layers": quant_layers,
-                            "format": quant_format_str,
-                            "quant_algo": quant_algo,
-                            "version": "1.0"
-                        })
-                    }
-
-                    # Save as safetensors with metadata
-                    result += f"   💾 Writing SafeTensors file with ComfyUI metadata...\n"
-                    safetensors_save(state_dict, str(safetensors_path), metadata=metadata)
-
-                    if safetensors_path.exists():
+                    if safetensors_path.exists() and is_valid_quantized_safetensors(safetensors_path):
+                        result += "   Existing SafeTensors looks valid; skipping conversion.\n"
                         safetensors_size = get_model_size(str(safetensors_path))
-                        result += f"   ✅ Conversion SUCCESS!\n"
-                        result += f"   📦 SafeTensors File: {safetensors_path.name}\n"
-                        result += f"   📊 Size: {safetensors_size}\n\n"
                         final_output_path = safetensors_path
                         output_size = safetensors_size
                     else:
-                        result += "   ❌ Conversion FAILED - file not created!\n"
-                        result += "   ⚠️ Using .pt file instead\n\n"
+                        converter_script = Path(__file__).resolve().parents[1] / "convert_mto_to_safetensors.py"
+                        if not converter_script.exists():
+                            raise FileNotFoundError(f"Converter not found: {converter_script}")
+
+                        quant_format_str = "nvfp4" if quant_format == "fp4" else "float8_e4m3fn"
+                        cmd_conv = [
+                            str(VENV_PYTHON),
+                            str(converter_script),
+                            str(output_path),
+                            str(safetensors_path),
+                            "--model-type",
+                            model_type,
+                            "--format",
+                            quant_format_str,
+                            "--algo",
+                            quant_algo,
+                        ]
+                        result += f"   Running converter: {' '.join(cmd_conv)}\n"
+                        conv = subprocess.run(cmd_conv, capture_output=True, text=True)
+
+                        if conv.stdout:
+                            result += conv.stdout[-4000:] + "\n"
+                        if conv.stderr:
+                            result += conv.stderr[-4000:] + "\n"
+
+                        if safetensors_path.exists() and is_valid_quantized_safetensors(safetensors_path):
+                            safetensors_size = get_model_size(str(safetensors_path))
+                            result += "   Conversion OK\n"
+                            result += f"   SafeTensors File: {safetensors_path.name}\n"
+                            result += f"   Size: {safetensors_size}\n\n"
+                            final_output_path = safetensors_path
+                            output_size = safetensors_size
+                        else:
+                            result += "   Conversion failed or output is invalid.\n"
+                            result += "   Using .pt file instead\n\n"
 
                 except Exception as e:
-                    result += f"   ❌ Conversion ERROR: {str(e)}\n"
-                    result += f"   ⚠️ Using .pt file instead\n\n"
+                    result += f"   Conversion error: {str(e)}\n"
+                    result += "   Using .pt file instead\n\n"
             elif convert_to_safetensors and not SAFETENSORS_AVAILABLE:
                 result += "   ⚠️ SafeTensors library not installed!\n"
                 result += "   ℹ️  Install with: pip install safetensors\n"

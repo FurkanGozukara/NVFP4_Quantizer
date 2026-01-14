@@ -10,3 +10,8 @@ SECourses_Musubi_Trainer
 requirements_optimizer.txt
 *__pycache__*
 venv/
+ComfyUI/
+FIX_README.md
+QUANTIZATION_FIX_COMPLETE.md
+logs.txt
+run_0008.txt

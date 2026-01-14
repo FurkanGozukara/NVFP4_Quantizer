@@ -160,17 +160,41 @@ def run_diffusion_quantization(
             input_path = Path(os.path.abspath(str(input_path)))
         suffix = "_NVFP4_custom" if quant_format == "fp4" else "_FP8_custom"
 
-        # Use custom output folder if provided, otherwise save in same folder
-        if output_folder and output_folder.strip():
-            output_dir = Path(output_folder.strip()).expanduser()
-            if not output_dir.is_absolute():
-                output_dir = Path(os.path.abspath(str(output_dir)))
-            if not output_dir.exists():
-                output_dir.mkdir(parents=True, exist_ok=True)
-            output_path = output_dir / f"{input_path.stem}{suffix}.pt"
+        # Use custom output path if provided (file or folder), otherwise save in same folder
+        output_path_input = output_folder.strip() if output_folder else ""
+        output_dir = None
+        safetensors_target_path = None
+        if output_path_input:
+            output_candidate = Path(output_path_input).expanduser()
+            if not output_candidate.is_absolute():
+                output_candidate = Path(os.path.abspath(str(output_candidate)))
+
+            is_existing_dir = output_candidate.exists() and output_candidate.is_dir()
+            has_suffix = bool(output_candidate.suffix)
+            if not is_existing_dir and has_suffix:
+                output_dir = output_candidate.parent
+                if not output_dir.exists():
+                    output_dir.mkdir(parents=True, exist_ok=True)
+
+                if output_candidate.suffix.lower() == ".safetensors":
+                    safetensors_target_path = output_candidate
+                    output_path = output_candidate.with_suffix(".pt")
+                    if not convert_to_safetensors:
+                        convert_to_safetensors = True
+                else:
+                    output_path = output_candidate
+            else:
+                output_dir = output_candidate
+                if not output_dir.exists():
+                    output_dir.mkdir(parents=True, exist_ok=True)
+                output_path = output_dir / f"{input_path.stem}{suffix}.pt"
         else:
-            output_path = input_path.parent / f"{input_path.stem}{suffix}.pt"
+            output_dir = input_path.parent
+            output_path = output_dir / f"{input_path.stem}{suffix}.pt"
+
         output_path = Path(os.path.abspath(str(output_path)))
+        if safetensors_target_path is not None:
+            safetensors_target_path = Path(os.path.abspath(str(safetensors_target_path)))
 
         progress(0.2, desc="⚙️ Configuring parameters...")
 
@@ -226,8 +250,10 @@ def run_diffusion_quantization(
         result += f"   Model Type: {detected_type}\n\n"
 
         result += f"💾 Output Configuration:\n"
-        result += f"   User Provided Output Folder: {'YES - ' + output_folder if output_folder and output_folder.strip() else 'NO (using input folder)'}\n"
-        result += f"   Calculated Output Path: {output_path}\n"
+        result += f"   User Provided Output Path: {output_path_input if output_path_input else 'NO (using input folder)'}\n"
+        result += f"   Resolved Output Path (.pt): {output_path}\n"
+        if safetensors_target_path is not None:
+            result += f"   SafeTensors Target Path: {safetensors_target_path}\n"
         result += f"   Output File Name: {output_path.name}\n"
         result += f"   Output Folder: {output_path.parent}\n"
         result += f"   Convert to SafeTensors: {'✅ YES' if convert_to_safetensors else '❌ NO'}\n\n"
@@ -381,7 +407,7 @@ def run_diffusion_quantization(
                     progress(0.96, desc="🔄 Converting to SafeTensors...")
                     result += "   Starting conversion...\n"
 
-                    safetensors_path = output_path.with_suffix('.safetensors')
+                    safetensors_path = safetensors_target_path or output_path.with_suffix('.safetensors')
                     result += f"   Target Path: {safetensors_path}\n\n"
 
                     # Load the PyTorch checkpoint
@@ -528,10 +554,10 @@ def diffusion_quantization_tab(headless: bool = False):
 
             with gr.Row():
                 output_folder = gr.Textbox(
-                    label="Output Folder (Optional)",
+                    label="Output Path (Optional)",
                     placeholder="Leave empty to save in same folder as input model",
                     scale=5,
-                    info="Custom folder to save quantized model. If not provided, saves in same folder with _NVFP4 suffix"
+                    info="Provide a folder or a filename (.pt or .safetensors). If empty, saves next to input with _NVFP4 suffix."
                 )
                 output_folder_btn = gr.Button("📂", scale=1, size="lg")
 
@@ -680,7 +706,7 @@ def diffusion_quantization_tab(headless: bool = False):
             lines=28,
             max_lines=50,
             interactive=False,
-            placeholder="Click 'START QUANTIZATION' to begin...\n\nOutput file will be saved with _NVFP4 suffix.\nIf no output folder is specified, it will be saved in the same folder as your input model.",
+            placeholder="Click 'START QUANTIZATION' to begin...\n\nOutput file will use _NVFP4 suffix unless you provide a filename.\nIf no output path is specified, it will be saved in the same folder as your input model.",
         )
 
     with gr.Row():

@@ -467,8 +467,40 @@ def run_diffusion_quantization(
                             "SafeTensors conversion requires a dict of tensors as state_dict."
                         )
 
-                    # Save as safetensors
-                    safetensors_save(state_dict, str(safetensors_path))
+                    # Build ComfyUI-compatible quantization metadata
+                    result += "   🔧 Building quantization metadata for ComfyUI...\n"
+                    import json
+                    quant_layers = {}
+                    quant_format_str = "nvfp4" if quant_format == "fp4" else "float8_e4m3fn"
+
+                    # Scan for quantized layers (look for weight_scale and input_scale keys)
+                    for key in state_dict.keys():
+                        if key.endswith('.weight_scale') or key.endswith('.input_scale'):
+                            layer_name = key.rsplit('.', 1)[0]
+                            if layer_name not in quant_layers:
+                                quant_layers[layer_name] = {"format": quant_format_str}
+
+                    # Add .comfy_quant keys for each quantized layer
+                    for layer_name, layer_config in quant_layers.items():
+                        comfy_quant_key = f"{layer_name}.comfy_quant"
+                        comfy_quant_value = json.dumps(layer_config).encode('utf-8')
+                        state_dict[comfy_quant_key] = torch.tensor(list(comfy_quant_value), dtype=torch.uint8)
+
+                    result += f"   ✅ Added quantization metadata for {len(quant_layers)} layers (format: {quant_format_str})\n"
+
+                    # Build metadata for safetensors file
+                    metadata = {
+                        "_quantization_metadata": json.dumps({
+                            "layers": quant_layers,
+                            "format": quant_format_str,
+                            "quant_algo": quant_algo,
+                            "version": "1.0"
+                        })
+                    }
+
+                    # Save as safetensors with metadata
+                    result += f"   💾 Writing SafeTensors file with ComfyUI metadata...\n"
+                    safetensors_save(state_dict, str(safetensors_path), metadata=metadata)
 
                     if safetensors_path.exists():
                         safetensors_size = get_model_size(str(safetensors_path))

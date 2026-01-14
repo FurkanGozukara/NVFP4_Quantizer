@@ -155,17 +155,22 @@ def run_diffusion_quantization(
         model_type = DIFFUSION_MODELS[detected_type]
 
         # Generate output path
-        input_path = Path(model_path)
+        input_path = Path(model_path).expanduser()
+        if not input_path.is_absolute():
+            input_path = Path(os.path.abspath(str(input_path)))
         suffix = "_NVFP4_custom" if quant_format == "fp4" else "_FP8_custom"
 
         # Use custom output folder if provided, otherwise save in same folder
         if output_folder and output_folder.strip():
-            output_dir = Path(output_folder)
+            output_dir = Path(output_folder.strip()).expanduser()
+            if not output_dir.is_absolute():
+                output_dir = Path(os.path.abspath(str(output_dir)))
             if not output_dir.exists():
                 output_dir.mkdir(parents=True, exist_ok=True)
             output_path = output_dir / f"{input_path.stem}{suffix}.pt"
         else:
             output_path = input_path.parent / f"{input_path.stem}{suffix}.pt"
+        output_path = Path(os.path.abspath(str(output_path)))
 
         progress(0.2, desc="⚙️ Configuring parameters...")
 
@@ -181,7 +186,7 @@ def run_diffusion_quantization(
             "--calib-size", str(int(calib_size)),
             "--batch-size", "2",
             "--n-steps", str(int(n_steps)),
-            "--override-model-path", str(model_path),
+            "--override-model-path", str(input_path),
             "--quantized-torch-ckpt-save-path", str(output_path),
         ]
 
@@ -392,6 +397,30 @@ def run_diffusion_quantization(
                         state_dict = checkpoint
 
                     result += f"   💾 Saving as SafeTensors: {safetensors_path.name}\n"
+                    # Normalize checkpoint content for safetensors conversion
+                    if isinstance(state_dict, dict):
+                        if 'model_state_dict' in state_dict and isinstance(state_dict['model_state_dict'], dict):
+                            result += "   Using model_state_dict from checkpoint\n"
+                            state_dict = state_dict['model_state_dict']
+                        elif 'state_dict' in state_dict and isinstance(state_dict['state_dict'], dict):
+                            result += "   Using state_dict from checkpoint\n"
+                            state_dict = state_dict['state_dict']
+
+                        non_tensor_keys = [
+                            k for k, v in state_dict.items() if not isinstance(v, torch.Tensor)
+                        ]
+                        if non_tensor_keys:
+                            result += "   Warning: removing non-tensor entries before safetensors save\n"
+                            state_dict = {
+                                k: v for k, v in state_dict.items() if isinstance(v, torch.Tensor)
+                            }
+                        if not state_dict:
+                            raise ValueError("No tensors found in checkpoint for SafeTensors conversion.")
+                    else:
+                        raise TypeError(
+                            "SafeTensors conversion requires a dict of tensors as state_dict."
+                        )
+
                     # Save as safetensors
                     safetensors_save(state_dict, str(safetensors_path))
 

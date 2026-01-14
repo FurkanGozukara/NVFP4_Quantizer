@@ -45,44 +45,44 @@ DIFFUSION_PRESETS = {
         "description": "Flux Dev only: mixed FP4/FP8 layer map for higher quality (larger file).",
     },
     "🚀 Best Quality": {
-        "quant_format": "fp4",
+        "quant_format": "fp4_mixed_dev",
         "quant_algo": "max",
         "calib_size": 512,
         "n_steps": 30,
         "quantize_mha": True,
         "svd_lowrank": 64,
         "compress": False,
-        "description": "Maximum quality with MAX algorithm. Perfect for production use.",
+        "description": "Maximum quality with mixed FP4/FP8 and MAX algorithm. Best for production use.",
     },
     "⚡ Balanced (Recommended)": {
-        "quant_format": "fp4",
+        "quant_format": "fp4_mixed_dev",
         "quant_algo": "max",
         "calib_size": 256,
         "n_steps": 20,
         "quantize_mha": True,
         "svd_lowrank": 32,
         "compress": False,
-        "description": "Best balance using MAX algorithm with optimal calibration. Recommended for most users.",
+        "description": "Best balance using mixed FP4/FP8 with optimal calibration. Recommended for most users.",
     },
     "💨 Fast": {
-        "quant_format": "fp4",
+        "quant_format": "fp4_mixed_dev",
         "quant_algo": "max",
         "calib_size": 128,
         "n_steps": 20,
         "quantize_mha": True,
         "svd_lowrank": 32,
         "compress": False,
-        "description": "Quick quantization with MAX algorithm for faster calibration.",
+        "description": "Quick quantization using mixed FP4/FP8 with faster calibration.",
     },
     "🏃 Ultra Fast Test": {
-        "quant_format": "fp8",
+        "quant_format": "fp4_mixed_dev",
         "quant_algo": "max",
         "calib_size": 64,
         "n_steps": 20,
         "quantize_mha": True,
         "svd_lowrank": 16,
         "compress": False,
-        "description": "Quick test with FP8 format (50% compression vs NVFP4's 75%).",
+        "description": "Quick test using mixed FP4/FP8 with minimal calibration.",
     },
 }
 
@@ -685,7 +685,7 @@ def diffusion_quantization_tab(headless: bool = False):
             with gr.Row():
                 quant_format = gr.Dropdown(
                     choices=["fp4", "fp4_mixed_dev", "fp8"],
-                    value="fp4",
+                    value="fp4_mixed_dev",
                     label="Quantization Format",
                     info="FP4 (NVFP4) = 75% compression with 4-bit precision | FP4 mixed dev = NVFP4 with FP8 for select FLUX layers (larger file, higher quality) | FP8 = 50% compression with 8-bit precision."
                 )
